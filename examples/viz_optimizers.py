@@ -5,9 +5,12 @@ import numpy as np
 import torch
 from hyperopt import fmin, hp, tpe
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch_optimizer as optim
 
-plt.style.use("seaborn-white")
+# plt.style.use("seaborn-white")
 
 
 def rosenbrock(tensor):
@@ -27,6 +30,43 @@ def rastrigin(tensor, lib=torch):
     )
     return f
 
+def sphere(tensor):
+    # https://en.wikipedia.org/wiki/Test_functions_for_optimization
+    x, y = tensor
+    return 10*x**2 + y**2 - 2*x*y
+
+def logistic(tensor, lib=torch):
+    x, y = tensor
+    return lib.log(1+lib.exp(-x))+lib.log(1+lib.exp(-y))
+
+def execute_steps2(
+    func, initial_state, optimizer_class, optimizer_config, num_iter=500
+):
+    x = torch.Tensor(initial_state).requires_grad_(True)
+    optimizer = optimizer_class([x], **optimizer_config)
+    steps = []
+    steps = np.zeros((2, num_iter + 1))
+    steps[:, 0] = np.array(initial_state)
+    grads = np.zeros((2, num_iter + 1))
+    for i in range(1, num_iter + 1):
+        optimizer.zero_grad()
+        def closure():
+            f = func(x)
+            return f
+        
+        f = closure()
+        if optimizer_class.__name__ == "Adahessian":
+            f.backward(create_graph=True, retain_graph=True)
+        else:
+            f.backward()
+        
+        torch.nn.utils.clip_grad_norm_(x, 1.0)
+
+        optimizer.step(closure)
+
+        steps[:, i] = x.detach().numpy()
+        grads[:, i] = x.grad.clone().detach().numpy()
+    return steps,grads 
 
 def execute_steps(
     func, initial_state, optimizer_class, optimizer_config, num_iter=500
@@ -38,13 +78,20 @@ def execute_steps(
     steps[:, 0] = np.array(initial_state)
     for i in range(1, num_iter + 1):
         optimizer.zero_grad()
-        f = func(x)
+
+        def closure():
+            f = func(x)
+            return f
+        
+        f = closure()
         f.backward(create_graph=True, retain_graph=True)
+        
         torch.nn.utils.clip_grad_norm_(x, 1.0)
-        optimizer.step()
+
+        optimizer.step(closure)
+
         steps[:, i] = x.detach().numpy()
     return steps
-
 
 def objective_rastrigin(params):
     lr = params["lr"]
@@ -72,6 +119,30 @@ def objective_rosenbrok(params):
     return (steps[0][-1] - minimum[0]) ** 2 + (steps[1][-1] - minimum[1]) ** 2
 
 
+def objective_sphere(params):
+    lr = params["lr"]
+    optimizer_class = params["optimizer_class"]
+    minimum = (0.0, 0.0)
+    initial_state = (-2.0, 2.0)
+    optimizer_config = dict(lr=lr)
+    num_iter = 100
+    steps = execute_steps(
+        sphere, initial_state, optimizer_class, optimizer_config, num_iter
+    )
+    return (steps[0][-1] - minimum[0]) ** 2 + (steps[1][-1] - minimum[1]) ** 2
+
+def objective_logistic(params):
+    lr = params["lr"]
+    optimizer_class = params["optimizer_class"]
+    minimum = (0.0, 0.0)
+    initial_state = (-2.0, 2.0)
+    optimizer_config = dict(lr=lr)
+    num_iter = 100
+    steps = execute_steps(
+        logistic, initial_state, optimizer_class, optimizer_config, num_iter
+    )
+    return (steps[0][-1] - minimum[0]) ** 2 + (steps[1][-1] - minimum[1]) ** 2
+
 def plot_rastrigin(grad_iter, optimizer_name, lr):
     x = np.linspace(-4.5, 4.5, 250)
     y = np.linspace(-4.5, 4.5, 250)
@@ -94,6 +165,9 @@ def plot_rastrigin(grad_iter, optimizer_name, lr):
     plt.plot(*minimum, "gD")
     plt.plot(iter_x[-1], iter_y[-1], "rD")
     plt.savefig("docs/rastrigin_{}.png".format(optimizer_name))
+
+    loss = rastrigin(grad_iter, lib=np)
+    np.save("cvg_plot/rastrigin/{}.npy".format(optimizer_name),loss)
 
 
 def plot_rosenbrok(grad_iter, optimizer_name, lr):
@@ -120,6 +194,73 @@ def plot_rosenbrok(grad_iter, optimizer_name, lr):
     plt.plot(iter_x[-1], iter_y[-1], "rD")
     plt.savefig("docs/rosenbrock_{}.png".format(optimizer_name))
 
+    loss = rosenbrock(grad_iter)
+    np.save("cvg_plot/rosenbrock/{}.npy".format(optimizer_name),loss)
+
+def plot_sphere(grad_iter, optimizer_name, lr):
+    x = np.linspace(-3, 3, 250)
+    y = np.linspace(-3, 3, 250)
+    minimum = (0.0, 0.0)
+
+    X, Y = np.meshgrid(x, y)
+    Z = sphere([X, Y])
+
+    iter_x, iter_y = grad_iter[0, :], grad_iter[1, :]
+
+    fig = plt.figure(figsize=(8, 8))
+
+    ax = fig.add_subplot(1, 1, 1)
+    ax.contour(X, Y, Z, 90, cmap="jet")
+    ax.plot(iter_x, iter_y, color="r", marker="x")
+
+    ax.set_title(
+        "Sphere func: {} with {} "
+        "iterations, lr={:.6}".format(optimizer_name, len(iter_x), lr)
+    )
+    plt.plot(*minimum, "gD")
+    plt.plot(iter_x[-1], iter_y[-1], "rD")
+    plt.savefig("docs/sphere_{}.png".format(optimizer_name))
+
+    loss = sphere(grad_iter)
+    np.save("cvg_plot/sphere/{}.npy".format(optimizer_name),loss)
+
+def plot_logistic(grad_iter, optimizer_name, lr):
+    x = np.linspace(-3, 3, 250)
+    y = np.linspace(-3, 3, 250)
+    minimum = (0.0, 0.0)
+
+    X, Y = np.meshgrid(x, y)
+    Z = logistic([X, Y],lib=np)
+
+    iter_x, iter_y = grad_iter[0, :], grad_iter[1, :]
+
+    fig = plt.figure(figsize=(8, 8))
+
+    ax = fig.add_subplot(1, 1, 1)
+    ax.contour(X, Y, Z, 90, cmap="jet")
+    ax.plot(iter_x, iter_y, color="r", marker="x")
+
+    ax.set_title(
+        "logistic func: {} with {} "
+        "iterations, lr={:.6}".format(optimizer_name, len(iter_x), lr)
+    )
+    plt.plot(*minimum, "gD")
+    plt.plot(iter_x[-1], iter_y[-1], "rD")
+    plt.savefig("docs/logistic_{}.png".format(optimizer_name))
+
+    loss = logistic(grad_iter,lib=np)
+    np.save("cvg_plot/logistic/{}.npy".format(optimizer_name),loss)
+
+def plot_grads(grads,func_name,optimizer_name,lr):
+    plt.figure(figsize=(8, 8))
+    plt.plot(range(1,grads.shape[1]+1), grads[0,:],label='grad_x')
+    plt.plot(range(1,grads.shape[1]+1), grads[1,:],label='grad_y')
+    plt.xlabel('Iteration')
+    plt.ylabel('Gradient')
+    plt.title("{} func: lr {} with {} iterations".format(func_name, lr,len(grads)))
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("grad_plot/{}_{}.png".format(func_name,optimizer_name))
 
 def execute_experiments(
     optimizers, objective, func, plot_func, initial_state, seed=1
@@ -136,7 +277,7 @@ def execute_experiments(
             space=space,
             algo=tpe.suggest,
             max_evals=200,
-            rstate=np.random.RandomState(seed),
+            rstate=np.random.default_rng(seed),
         )
         print(best["lr"], optimizer_class)
 
@@ -148,6 +289,13 @@ def execute_experiments(
             num_iter=500,
         )
         plot_func(steps, optimizer_class.__name__, best["lr"])
+        steps,grads = execute_steps2(
+            func,
+            initial_state,
+            optimizer_class,
+            {"lr": best["lr"]},
+            num_iter=500,
+        )
 
 
 def LookaheadYogi(*a, **kw):
@@ -196,6 +344,15 @@ if __name__ == "__main__":
         (optim.AdaBelief, -8, 0.1),
         (optim.Apollo, -8, 0.1),
     ]
+    optimizers = [
+                # (torch.optim.Adam, -8, 0.5),
+                # (optim.Adafactor, -8, 0.5),
+                # (torch.optim.SGD, -8, -1.0),
+                # (optim.Adahessian, -1, 8),
+                (optim.OSMM, -8, 1),
+                # (optim.OSGM, -8, 1),
+                  ]
+    
     execute_experiments(
         optimizers,
         objective_rastrigin,
@@ -209,5 +366,21 @@ if __name__ == "__main__":
         objective_rosenbrok,
         rosenbrock,
         plot_rosenbrok,
+        (-2.0, 2.0),
+    )
+
+    execute_experiments(
+        optimizers,
+        objective_sphere,
+        sphere,
+        plot_sphere,
+        (-2.0, 2.0),
+    )
+
+    execute_experiments(
+        optimizers,
+        objective_logistic,
+        logistic,
+        plot_logistic,
         (-2.0, 2.0),
     )

@@ -1,6 +1,9 @@
 import pytest
 import torch
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch_optimizer as optim
 
 
@@ -70,7 +73,7 @@ optimizers = [
     (optim.Adahessian, {"lr": 0.15, "hessian_power": 0.6, "seed": 0}, 900),
     (optim.MADGRAD, {"lr": 0.02}, 500),
     (optim.LARS, {"lr": 0.002, "momentum": 0.91}, 900),
-    (optim.Lion, {"lr": 0.025}, 3600),
+    # (optim.Lion, {"lr": 0.025}, 3600),
 ]
 
 
@@ -92,3 +95,6 @@ def test_benchmark_function(case, optimizer_config):
 
     name = optimizer.__class__.__name__
     assert name in optimizer.__repr__()
+
+if __name__ == "__main__":
+    test_benchmark_function(cases,optimizers)

@@ -10,14 +10,13 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch_optimizer as optim
 
-
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.dropout1 = nn.Dropout2d(0.25)
-        self.dropout2 = nn.Dropout2d(0.5)
+        self.dropout1 = nn.Dropout(0.25)
+        self.dropout2 = nn.Dropout(0.5)
         self.fc1 = nn.Linear(9216, 128)
         self.fc2 = nn.Linear(128, 10)
 
@@ -36,15 +35,25 @@ class Net(nn.Module):
         return output
 
 
-def train(conf, model, device, train_loader, optimizer, epoch, writer):
+def train(conf, model, device, train_loader, optimizer, epoch, writer, optimizer_name):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        loss = F.nll_loss(output, target)
-        loss.backward()
-        optimizer.step()
+
+        def closure():
+            output = model(data)
+            loss = F.nll_loss(output, target)
+            return loss 
+        loss = closure()
+
+        if optimizer_name == "Adahessian":
+            loss.backward(create_graph=True, retain_graph=True)
+        else:
+            loss.backward()
+
+        optimizer.step(closure)
+        
         if batch_idx % conf.log_interval == 0:
             loss = loss.item()
             idx = batch_idx + epoch * (len(train_loader))
@@ -60,7 +69,7 @@ def train(conf, model, device, train_loader, optimizer, epoch, writer):
             )
 
 
-def test(conf, model, device, test_loader, epoch, writer):
+def test(conf, model, device, test_loader, epoch, writer, optimizer_name):
     model.eval()
     test_loss = 0
     correct = 0
@@ -131,8 +140,8 @@ class Config:
         self,
         batch_size: int = 64,
         test_batch_size: int = 1000,
-        epochs: int = 1,
-        lr: float = 0.001,
+        epochs: int = 2,
+        lr: float = 0.01,
         gamma: float = 0.7,
         no_cuda: bool = True,
         seed: int = 42,
@@ -147,39 +156,58 @@ class Config:
         self.seed = seed
         self.log_interval = log_interval
 
+def execute_experiments(optimizers,lr):
+    conf = Config(lr=lr)
+    seed = conf.seed 
 
-def main():
-    conf = Config()
-    log_dir = "runs/mnist_custom_optim"
-    print("Tensorboard: tensorboard --logdir={}".format(log_dir))
+    for optimizer_class in optimizers:
+        optimizer_name = optimizer_class.__name__
+        log_dir = "runs/mnist_{}".format(optimizer_name)
+        print("Tensorboard: tensorboard --logdir={}".format(log_dir))
 
-    with SummaryWriter(log_dir) as writer:
-        use_cuda = not conf.no_cuda and torch.cuda.is_available()
-        torch.manual_seed(conf.seed)
-        device = torch.device("cuda" if use_cuda else "cpu")
-        train_loader, test_loader = prepare_loaders(conf, use_cuda)
+        f = open('mnist_log/{}_lr{}.txt'.format(optimizer_name,conf.lr), 'w')
+        sys.stdout = f
+        with SummaryWriter(log_dir) as writer:
+            use_cuda = not conf.no_cuda and torch.cuda.is_available()
+            torch.manual_seed(conf.seed)
+            device = torch.device("cuda" if use_cuda else "cpu")
+            train_loader, test_loader = prepare_loaders(conf, use_cuda)
 
-        model = Net().to(device)
+            model = Net().to(device)
 
-        # create grid of images and write to tensorboard
-        images, labels = next(iter(train_loader))
-        img_grid = utils.make_grid(images)
-        writer.add_image("mnist_images", img_grid)
+            # create grid of images and write to tensorboard
+            images, labels = next(iter(train_loader))
+            img_grid = utils.make_grid(images)
+            writer.add_image("mnist_images", img_grid)
 
-        # custom optimizer from torch_optimizer package
-        # optimizer = optim.DiffGrad(model.parameters(), lr=conf.lr)
-        optimizer = optim.Adap(model.parameters(), lr=conf.lr)
-        # optimizer = torch.optim.Adam(model.parameters(), lr=conf.lr)
+            optimizer = optimizer_class(model.parameters(), lr=conf.lr)
 
-        scheduler = StepLR(optimizer, step_size=1, gamma=conf.gamma)
-        for epoch in range(1, conf.epochs + 1):
-            train(conf, model, device, train_loader, optimizer, epoch, writer)
-            test(conf, model, device, test_loader, epoch, writer)
-            scheduler.step()
-            for name, param in model.named_parameters():
-                writer.add_histogram(name, param, epoch)
-                writer.add_histogram("{}.grad".format(name), param.grad, epoch)
+            scheduler = StepLR(optimizer, step_size=1, gamma=conf.gamma)
+            for epoch in range(1, conf.epochs + 1):
+                train(conf, model, device, train_loader, optimizer, epoch, writer,optimizer_name)
+                test(conf, model, device, test_loader, epoch, writer,optimizer_name)
+                scheduler.step()
+                for name, param in model.named_parameters():
+                    writer.add_histogram(name, param, epoch)
+                    writer.add_histogram("{}.grad".format(name), param.grad, epoch)
+        f.close()
+        sys.stdout = sys.__stdout__
 
 
 if __name__ == "__main__":
-    main()
+    """ 
+    Self-defined MNIST test, support OSGM and OSMM, 
+    as well as txt output for easy plot
+    """
+    optimizers = [
+                # torch.optim.Adam,
+                # torch.optim.SGD,
+                # optim.DiffGrad,
+                # optim.OSGM,
+                optim.OSMM,
+                # optim.Adafactor,
+                # optim.Adahessian,
+                ]
+    lr = 1e-2
+
+    execute_experiments(optimizers,lr)
