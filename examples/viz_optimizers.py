@@ -39,40 +39,16 @@ def logistic(tensor, lib=torch):
     x, y = tensor
     return lib.log(1+lib.exp(-x))+lib.log(1+lib.exp(-y))
 
-def execute_steps2(
-    func, initial_state, optimizer_class, optimizer_config, num_iter=500
-):
-    x = torch.Tensor(initial_state).requires_grad_(True)
-    optimizer = optimizer_class([x], **optimizer_config)
-    steps = []
-    steps = np.zeros((2, num_iter + 1))
-    steps[:, 0] = np.array(initial_state)
-    grads = np.zeros((2, num_iter + 1))
-    for i in range(1, num_iter + 1):
-        optimizer.zero_grad()
-        def closure():
-            f = func(x)
-            return f
-        
-        f = closure()
-        if optimizer_class.__name__ == "Adahessian":
-            f.backward(create_graph=True, retain_graph=True)
-        else:
-            f.backward()
-        
-        torch.nn.utils.clip_grad_norm_(x, 1.0)
-
-        optimizer.step(closure)
-
-        steps[:, i] = x.detach().numpy()
-        grads[:, i] = x.grad.clone().detach().numpy()
-    return steps,grads 
-
 def execute_steps(
     func, initial_state, optimizer_class, optimizer_config, num_iter=500
 ):
     x = torch.Tensor(initial_state).requires_grad_(True)
-    optimizer = optimizer_class([x], **optimizer_config)
+
+    if optimizer_class.__name__=="SGD":
+        optimizer = optimizer_class([x],momentum=0.9,nesterov=True,**optimizer_config)
+    else:
+        optimizer = optimizer_class([x], **optimizer_config)
+
     steps = []
     steps = np.zeros((2, num_iter + 1))
     steps[:, 0] = np.array(initial_state)
@@ -251,17 +227,6 @@ def plot_logistic(grad_iter, optimizer_name, lr):
     loss = logistic(grad_iter,lib=np)
     np.save("cvg_plot/logistic/{}.npy".format(optimizer_name),loss)
 
-def plot_grads(grads,func_name,optimizer_name,lr):
-    plt.figure(figsize=(8, 8))
-    plt.plot(range(1,grads.shape[1]+1), grads[0,:],label='grad_x')
-    plt.plot(range(1,grads.shape[1]+1), grads[1,:],label='grad_y')
-    plt.xlabel('Iteration')
-    plt.ylabel('Gradient')
-    plt.title("{} func: lr {} with {} iterations".format(func_name, lr,len(grads)))
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("grad_plot/{}_{}.png".format(func_name,optimizer_name))
-
 def execute_experiments(
     optimizers, objective, func, plot_func, initial_state, seed=1
 ):
@@ -289,13 +254,7 @@ def execute_experiments(
             num_iter=500,
         )
         plot_func(steps, optimizer_class.__name__, best["lr"])
-        steps,grads = execute_steps2(
-            func,
-            initial_state,
-            optimizer_class,
-            {"lr": best["lr"]},
-            num_iter=500,
-        )
+
 
 
 def LookaheadYogi(*a, **kw):
@@ -347,9 +306,9 @@ if __name__ == "__main__":
     optimizers = [
                 # (torch.optim.Adam, -8, 0.5),
                 # (optim.Adafactor, -8, 0.5),
-                # (torch.optim.SGD, -8, -1.0),
+                (torch.optim.SGD, -8, -1.0),
                 # (optim.Adahessian, -1, 8),
-                (optim.OSMM, -8, 1),
+                # (optim.OSMM, -8, 1),
                 # (optim.OSGM, -8, 1),
                   ]
     
@@ -374,13 +333,5 @@ if __name__ == "__main__":
         objective_sphere,
         sphere,
         plot_sphere,
-        (-2.0, 2.0),
-    )
-
-    execute_experiments(
-        optimizers,
-        objective_logistic,
-        logistic,
-        plot_logistic,
         (-2.0, 2.0),
     )

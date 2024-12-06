@@ -10,13 +10,15 @@ class OSMM(Optimizer):
         self,
         params: Params,
         lr: OptFloat = None,
+        beta = 0.995,
+        beta_lr = 1e-4,
         eps: float = 1e-15,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps)
+        defaults = dict(lr=lr,eps=eps,beta=beta,beta_lr=beta_lr)
         super(OSMM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -39,7 +41,7 @@ class OSMM(Optimizer):
                 # State Initialization
                 if len(state) == 0:
                     state["step"] = 0
-                    state["beta"] = 0.995
+                    state["beta"] = group["beta"]
                     state["Gm"] = 0
                     state["m"] = torch.zeros_like(p)
                     state["Q"] = torch.zeros_like(p)
@@ -61,7 +63,7 @@ class OSMM(Optimizer):
                     gm = prev_grad * m/(prev_grad.norm()**2+eps) # gradient of momentum coef
 
                     state["Gm"] += gm**2 # Adagrad normalizer for momentum coef
-                    state["beta"] += -1e-4 * gm / (state["Gm"].sqrt().add(eps)) # adagrad preconditioner update
+                    state["beta"] += -group["beta_lr"] * gm / (state["Gm"].sqrt().add(eps)) # adagrad preconditioner update
                     
                     pcopy = p.detach().clone()
                     p.addcmul_(state["Q"], grad, value = -1).add_(state["beta"]*m)

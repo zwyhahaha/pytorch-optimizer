@@ -180,7 +180,12 @@ def execute_experiments(optimizers,lr):
             img_grid = utils.make_grid(images)
             writer.add_image("mnist_images", img_grid)
 
-            optimizer = optimizer_class(model.parameters(), lr=conf.lr)
+            if optimizer_class.__name__ == "SGD":
+                optimizer = optimizer_class(model.parameters(), lr=conf.lr,momentum=0.9,nesterov=True)
+            elif optimizer_class.__name__ == "OSMM":
+                optimizer = optimizer_class(model.parameters(), lr=conf.lr,beta=0.9,beta_lr=1e-2)
+            else:
+                optimizer = optimizer_class(model.parameters(), lr=conf.lr)
 
             scheduler = StepLR(optimizer, step_size=1, gamma=conf.gamma)
             for epoch in range(1, conf.epochs + 1):
@@ -201,13 +206,13 @@ if __name__ == "__main__":
     """
     optimizers = [
                 # torch.optim.Adam,
-                # torch.optim.SGD,
+                # torch.optim.SGD, # 0.01
                 # optim.DiffGrad,
                 # optim.OSGM,
                 optim.OSMM,
                 # optim.Adafactor,
                 # optim.Adahessian,
                 ]
-    lr = 1e-2
+    lr = 0.01
 
     execute_experiments(optimizers,lr)

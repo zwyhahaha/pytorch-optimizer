@@ -26,6 +26,8 @@ def optimize(X, y, num_iters=1000, learning_rate=0.01, optimizer_type="SGD"):
 
     if optimizer_type == "SGD":
         optimizer = torch.optim.SGD([w], lr=learning_rate)
+    elif optimizer_type == "NAG":
+        optimizer = torch.optim.SGD([w], lr=learning_rate,momentum=0.9,nesterov=True)
     elif optimizer_type == "Adam":
         optimizer = torch.optim.Adam([w], lr=learning_rate)
     elif optimizer_type == "LBFGS":
@@ -95,13 +97,14 @@ if __name__ == "__main__":
     print(f"True weights: {true_w.squeeze().numpy()}")
 
     num_iters = 100
-    learning_rate = 0.5
+    learning_rate = 0.1
 
     # optimizer_type = "Adam"
-    optimizer_type = "OSGM"
+    # optimizer_type = "OSGM"
     # optimizer_type = "Adafactor"
     # optimizer_type = "Adahessian"
     # optimizer_type = "SGD"
+    optimizer_type = "NAG"
     # optimizer_type = "OSMM"
 
     w, losses, gradients = optimize(X, y, num_iters=num_iters, learning_rate=learning_rate, optimizer_type=optimizer_type)

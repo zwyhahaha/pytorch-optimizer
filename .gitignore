@@ -65,8 +65,10 @@ tags
 cscope.*
 TODO
 
-
+# Wanyu's changes
 cvg_plot/
 docs/
 mnist_log
 runs/
+dataset/
+data/

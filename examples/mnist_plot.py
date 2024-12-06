@@ -29,7 +29,7 @@ def read_data(fdir,filename):
 fdir = '/home/zhangwanyu/pytorch-optimizer/mnist_log'
 files = os.listdir(fdir)
 files = ['Adam_lr0.01.txt','OSGM_lr0.01.txt','OSMM_lr0.01.txt',\
-         'Adahessian_lr0.01.txt','SGD_lr0.01.txt',]
+         'Adahessian_lr0.01.txt','NAG_lr0.01.txt',]
 labels = [f.split('_')[0] for f in files]
 
 all_data = [read_data(fdir,file) for file in files]
@@ -39,7 +39,7 @@ fig, ax1 = plt.subplots()
 
 # Training Loss
 for i, (train_losses, _, _) in enumerate(all_data):
-    smoothed_losses = moving_average(train_losses, 5)
+    smoothed_losses = moving_average(train_losses, 10)
     epochs = np.arange(1, len(smoothed_losses) + 1)
     ax1.plot(epochs, smoothed_losses, label=labels[i])
     # epochs = np.arange(1, len(train_losses) + 1)
