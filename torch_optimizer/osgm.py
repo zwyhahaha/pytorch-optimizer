@@ -10,7 +10,7 @@ class OSGM(Optimizer):
         self,
         params: Params,
         lr: OptFloat = None,
-        eps: float = 1e-15,
+        eps: float = 1e-8,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))

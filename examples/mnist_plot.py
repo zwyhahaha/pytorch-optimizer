@@ -26,10 +26,12 @@ def read_data(fdir,filename):
     return train_losses, test_losses, test_accuracies
 
 # Read data from all files
-fdir = '/home/zhangwanyu/pytorch-optimizer/mnist_log'
+fdir = '/home/shanshu/pytorch-optimizer/cvg_plot/mnist_batch1000'
 files = os.listdir(fdir)
-files = ['Adam_lr0.01.txt','OSGM_lr0.01.txt','OSMM_lr0.01.txt',\
-         'Adahessian_lr0.01.txt','NAG_lr0.01.txt',]
+files = ['Adam_lr0.01.txt','OSGM_lr1.0.txt','OSMM_lr1.0.txt',\
+         'NAG_lr0.01.txt',]
+files = ['Adam_lr0.01.txt','OSGM_lr0.1.txt','OSMM_lr0.1.txt',\
+         'NAG_lr0.05.txt',]
 labels = [f.split('_')[0] for f in files]
 
 all_data = [read_data(fdir,file) for file in files]
@@ -39,7 +41,7 @@ fig, ax1 = plt.subplots()
 
 # Training Loss
 for i, (train_losses, _, _) in enumerate(all_data):
-    smoothed_losses = moving_average(train_losses, 10)
+    smoothed_losses = moving_average(train_losses, 1)
     epochs = np.arange(1, len(smoothed_losses) + 1)
     ax1.plot(epochs, smoothed_losses, label=labels[i])
     # epochs = np.arange(1, len(train_losses) + 1)
@@ -53,4 +55,4 @@ ax1.grid(True, linestyle='--', alpha=0.7)
 
 # Adjust layout and save
 plt.tight_layout()
-plt.savefig('cvg_plot/mnist.png', dpi=300, bbox_inches='tight')
+plt.savefig('cvg_plot/mnist_batch1000.png', dpi=300, bbox_inches='tight')

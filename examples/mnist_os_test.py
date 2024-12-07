@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch_optimizer as optim
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 class Net(nn.Module):
     def __init__(self):
@@ -146,7 +146,6 @@ class Config:
         epochs: int = 2,
         lr: float = 0.01,
         gamma: float = 0.7,
-        no_cuda: bool = True,
         seed: int = 42,
         log_interval: int = 10,
     ):
@@ -155,11 +154,10 @@ class Config:
         self.epochs = epochs
         self.lr = lr
         self.gamma = gamma
-        self.no_cuda = no_cuda
         self.seed = seed
         self.log_interval = log_interval
 
-def execute_experiments(optimizers,lr,epochs,batch_size):
+def execute_experiments(optimizers,lr,batch_size,epochs,beta,beta_lr):
     conf = Config(lr=lr,epochs=epochs,batch_size=batch_size)
     seed = conf.seed 
 
@@ -172,11 +170,11 @@ def execute_experiments(optimizers,lr,epochs,batch_size):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
-        f = open('{}/{}_lr{}.txt'.format(save_path, optimizer_name, conf.lr), 'w')
-
+        # f = open('{}/{}_lr{}_beta{}_beta_lr_{}.txt'.format(save_path,optimizer_name,conf.lr,beta,beta_lr), 'w')
+        f = open('{}/{}_lr{}.txt'.format(save_path,optimizer_name,conf.lr), 'w')
         sys.stdout = f
         with SummaryWriter(log_dir) as writer:
-            use_cuda = not conf.no_cuda and torch.cuda.is_available()
+            use_cuda = torch.cuda.is_available()
             torch.manual_seed(conf.seed)
             device = torch.device("cuda" if use_cuda else "cpu")
             train_loader, test_loader = prepare_loaders(conf, use_cuda)
@@ -191,7 +189,7 @@ def execute_experiments(optimizers,lr,epochs,batch_size):
             if optimizer_class.__name__ == "SGD":
                 optimizer = optimizer_class(model.parameters(), lr=conf.lr,momentum=0.9,nesterov=True)
             elif optimizer_class.__name__ == "OSMM":
-                optimizer = optimizer_class(model.parameters(), lr=conf.lr,beta=0.9,beta_lr=0)
+                optimizer = optimizer_class(model.parameters(), lr=conf.lr,beta=beta,beta_lr=beta_lr)
             else:
                 optimizer = optimizer_class(model.parameters(), lr=conf.lr)
 
@@ -206,6 +204,23 @@ def execute_experiments(optimizers,lr,epochs,batch_size):
         f.close()
         sys.stdout = sys.__stdout__
 
+def parse_args():
+    """
+    Parses command-line arguments for the script.
+
+    Returns:
+        Namespace: Parsed arguments including 'lr', 'beta', and 'beta_lr'.
+    """
+    parser = argparse.ArgumentParser(description="Parse hyperparameters for training.")
+    parser.add_argument('--lr', type=float, required=True, help="Learning rate")
+    parser.add_argument('--batch_size', type=int, required=False,default=64, help="Learning rate")
+    parser.add_argument('--optimizer_name', type=str, required=True, help="optimizer name")
+    parser.add_argument('--beta', type=float, required=False, default=0.995, help="Beta parameter")
+    parser.add_argument('--beta_lr', type=float, required=False, default=1e-4, help="Learning rate for beta")
+
+
+    args = parser.parse_args()
+    return args
 
 if __name__ == "__main__":
     """ 
@@ -213,16 +228,31 @@ if __name__ == "__main__":
     as well as txt output for easy plot
     """
     optimizers = [
-                torch.optim.Adam,
-                torch.optim.SGD, # 0.01
+                # torch.optim.Adam,
+                # torch.optim.SGD, # 0.01
                 # optim.DiffGrad,
-                optim.OSGM,
+                # optim.OSGM,
                 optim.OSMM,
                 # optim.Adafactor,
                 # optim.Adahessian,
                 ]
-    lr = 0.01
-    epochs = 5
-    batch_size = 128
+    
+    args = parse_args()
 
-    execute_experiments(optimizers,lr,epochs,batch_size)
+    lr = args.lr
+    batch_size = args.batch_size
+    optimizer_name = args.optimizer_name
+    beta = args.beta
+    beta_lr = args.beta_lr
+    epochs = 10
+
+    if optimizer_name == "NAG" or optimizer_name == "SGD":
+        optimizers = [torch.optim.SGD]
+    elif optimizer_name == "Adam":
+        optimizers = [torch.optim.Adam]
+    elif optimizer_name == "OSGM":
+        optimizers = [optim.OSGM]
+    elif optimizer_name == "OSMM":
+        optimizers = [optim.OSMM]
+
+    execute_experiments(optimizers,lr,batch_size,epochs,beta,beta_lr)

@@ -1,6 +1,8 @@
 import torch
 from torch.optim.optimizer import Optimizer
 
+import numpy as np
+
 from .types import Betas2, OptFloat, OptLossClosure, Params
 
 __all__ = ("OSMM",)
@@ -12,13 +14,14 @@ class OSMM(Optimizer):
         lr: OptFloat = None,
         beta = 0.995,
         beta_lr = 1e-4,
-        eps: float = 1e-15,
+        random_scaling = False,
+        eps: float = 1e-8,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps,beta=beta,beta_lr=beta_lr)
+        defaults = dict(lr=lr,eps=eps,beta=beta,beta_lr=beta_lr,random_scaling=random_scaling)
         super(OSMM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -58,7 +61,13 @@ class OSMM(Optimizer):
                     gr = -prev_grad.mul(grad)/(prev_grad.norm()**2+eps) # gradient of preconditioner
                     
                     state["G"].addcmul_(gr,gr,value=1) # Adagrad normalizer
-                    state["Q"].addcdiv_(gr,state["G"].sqrt().add(eps),value=-lr) # adagrad preconditioner update
+
+                    if group["random_scaling"]:
+                        s = np.random.exponential(scale=1.0)
+                    else:
+                        s = 1
+
+                    state["Q"].addcdiv_(gr,state["G"].sqrt().add(eps),value=-s*lr) # adagrad preconditioner update
 
                     gm = prev_grad * m/(prev_grad.norm()**2+eps) # gradient of momentum coef
 
@@ -66,6 +75,7 @@ class OSMM(Optimizer):
                     state["beta"] += -group["beta_lr"] * gm / (state["Gm"].sqrt().add(eps)) # adagrad preconditioner update
                     
                     pcopy = p.detach().clone()
+                    
                     p.addcmul_(state["Q"], grad, value = -1).add_(state["beta"]*m)
 
                     loss_new = closure()
