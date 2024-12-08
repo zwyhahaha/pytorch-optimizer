@@ -13,15 +13,14 @@ class OSMM(Optimizer):
         params: Params,
         lr: OptFloat = None,
         beta = 0.995,
-        beta_lr = 1e-4,
         random_scaling = False,
-        eps: float = 1e-8,
+        eps: float = 1e-08,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps,beta=beta,beta_lr=beta_lr,random_scaling=random_scaling)
+        defaults = dict(lr=lr,eps=eps,beta=beta,random_scaling=random_scaling)
         super(OSMM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -58,25 +57,17 @@ class OSMM(Optimizer):
                     eps = group["eps"]
                     lr = group["lr"]
                     
-                    gr = -prev_grad.mul(grad)/(prev_grad.norm()**2+eps) # gradient of preconditioner
+                    gr = - prev_grad.mul(grad) / (prev_grad.norm() ** 2 + 1e-20) # gradient of preconditioner
                     
-                    state["G"].addcmul_(gr,gr,value=1) # Adagrad normalizer
+                    state["G"].addcmul_(gr, gr, value=1) # Adagrad normalizer
+                    state["Q"].addcdiv_(gr, state["G"].add(eps).sqrt(), value=-lr) # adagrad preconditioner update
+                    gm = prev_grad * m / (prev_grad.norm() ** 2 + 1e-20) # gradient of momentum coef
 
-                    if group["random_scaling"]:
-                        s = np.random.exponential(scale=1.0)
-                    else:
-                        s = 1
-
-                    state["Q"].addcdiv_(gr,state["G"].sqrt().add(eps),value=-s*lr) # adagrad preconditioner update
-
-                    gm = prev_grad * m/(prev_grad.norm()**2+eps) # gradient of momentum coef
-
-                    state["Gm"] += gm**2 # Adagrad normalizer for momentum coef
-                    state["beta"] += -group["beta_lr"] * gm / (state["Gm"].sqrt().add(eps)) # adagrad preconditioner update
+                    state["Gm"] += gm ** 2 # Adagrad normalizer for momentum coef
+                    state["beta"] += - lr * gm / (state["Gm"].add(eps).sqrt()) # adagrad preconditioner update
                     
                     pcopy = p.detach().clone()
-                    
-                    p.addcmul_(state["Q"], grad, value = -1).add_(state["beta"]*m)
+                    p.addcmul_(state["Q"], grad, value=-1).add_(state["beta"] * m)
 
                     loss_new = closure()
 
