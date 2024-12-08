@@ -48,6 +48,8 @@ from .yogi import Yogi
 from .osgm import OSGM 
 from .osmm import OSMM 
 from .adam_mini import Adam_mini
+from .adam_hd import AdamHD
+from .sgd_hd import SGDHD
 
 __all__ = (
     "A2GradExp",
@@ -84,9 +86,9 @@ __all__ = (
     "Adap",
     "Adam_mini",
     "OSGM",
-    "Ada_OSGM",
     "OSMM",
-    "AdaPrem",
+    "AdamHD",
+    "SGDHD",
     # utils
     "get",
     
@@ -123,6 +125,8 @@ _package_opts = [
     OSGM,
     OSMM,
     Adam_mini,
+    AdamHD,
+    SGDHD
 ]  # type: List[Type[Optimizer]]
 
 
