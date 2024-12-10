@@ -4,12 +4,28 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 import math
 
-import torch 
+import torch
+from torch.optim.lr_scheduler import StepLR, ExponentialLR
 
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import torch_optimizer as optim
+
+class SqrtLRScheduler:
+    def __init__(self, optimizer, step_size=1):
+        self.optimizer = optimizer
+        self.step_num = 1
+        self.step_size = step_size
+
+    def step(self):
+        self.step_num += 1
+        if self.step_num % self.step_size == 0:
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] *= ((self.step_num-1) ** 0.5)/(self.step_num ** 0.5)
+
+    def get_last_lr(self):
+        return [param_group['lr'] for param_group in self.optimizer.param_groups]
 
 def convert_to_one_hot(y, num_classes):
     # Use torch's one-hot encoding function
@@ -40,30 +56,45 @@ def benchmark_optimizer_logistic(optimizer_name, X, y, n_classes, lambda_reg=0.1
     optimizers = {
         "SGD": torch.optim.SGD([w], lr=0.05/math.sqrt(batches)),
         "NAG": torch.optim.SGD([w],lr=0.01/batches,momentum=0.9,nesterov=True),
-        "Adam": torch.optim.Adam([w], lr=0.005/math.sqrt(batches)),
-        "OSGM": optim.OSGM([w], lr=0.05/batches),
-        "OSMM": optim.OSMM([w], lr=0.05/batches),
+        "Adam": torch.optim.Adam([w], lr=0.05/batches),
+        "OSGM": optim.OSGM([w], lr=0.01/batches),
+        "OSMM": optim.OSMM([w], lr=0.1/batches),
+        "AdamHD": optim.AdamHD([w], lr=0.1/batches, hypergrad_lr=1e-8),
+        "SGDHD": optim.SGDHD([w], lr=0.1/math.sqrt(batches), hypergrad_lr=1e-6),
     }
     optimizer = optimizers[optimizer_name]
+
+    if optimizer_name == "SGD":
+        scheduler = StepLR(optimizer, step_size = 10, gamma=1.0) # constant learning rate
+    elif optimizer_name == "OSMM":
+        scheduler = SqrtLRScheduler(optimizer, step_size=1)
+    else:
+        scheduler = ExponentialLR(optimizer, gamma=0.9) # exponential decay
+
     losses = []
 
     for epoch in range(epochs):
-        optimizer.zero_grad()
-        for i, (inputs, labels) in enumerate(train_loader):
-            def closure():
-                loss = softmax_loss(w, inputs, labels, lambda_reg, torch)
-                return loss
-            
-            loss = closure()
-            loss.backward()
-            optimizer.step(closure)
-        
-        loss = softmax_loss(w, X_train, y_train, lambda_reg, torch)
+        loss = softmax_loss(w, X_train, y_train, lambda_reg, torch) # compute loss on the whole training set
         losses.append(loss.item())
 
-        if epoch % 100 == 0:
+        if (epoch+1) % 100 == 0:
             print(f"Epoch {epoch}, Loss: {loss.item()}")
+        
+        optimizer.zero_grad()
+        for i, (inputs, labels) in enumerate(train_loader):
+            # use the next batch to define monotone oracle
+            next_inputs, next_labels = next(iter(train_loader))
+            def closure():
+                loss = softmax_loss(w, next_inputs, next_labels, lambda_reg, torch)
+                return loss
+            
+            loss = softmax_loss(w, inputs, labels, lambda_reg, torch)
+            loss.backward()
+            optimizer.step(closure)
 
+        if batches > 1:
+            scheduler.step()
+        
     test_loss = softmax_loss(w, X_test, y_test,lambda_reg=0)
     print(f"{optimizer_name} Test Loss: {test_loss:.2f}")
 
@@ -71,17 +102,17 @@ def benchmark_optimizer_logistic(optimizer_name, X, y, n_classes, lambda_reg=0.1
 
 if __name__ == "__main__":
     datasets = [
-        # "dna",
-        # "glass",
-        "iris",
-        # "vehicle",
-        "vowel",
-        "wine",
+        "dna.scale",
+        # "glass.scale",
+        # "iris.scale",
+        # "vehicle.scale",
+        # "vowel.scale",
+        # "wine.scale",
+        # "mnist.scale.bz2",
     ]
-        # "letter",
+
     for dataset in datasets:
-        data_path = f"data/LIBSVM/{dataset}.scale"
-        # data_path = f"/home/zhangwanyu/pytorch-optimizer/dataset/LIBSVM/{dataset}.scale"
+        data_path = f"data/LIBSVM/{dataset}"
         X, y = load_svmlight_file(data_path)
         X = X.toarray()
 
@@ -103,16 +134,18 @@ if __name__ == "__main__":
         y_tensor = convert_to_one_hot(y_tensor, n_classes)
 
         lambda_reg = 0.01
-        epochs = 300
+        epochs = 40
         lr = 0.05
-        batches = 16
+        batches = 15
 
         optimizer_names = [
-                        # "SGD", # lr=0.05
-                        # "Adam", # lr=0.01
-                        # "NAG",
+                        "SGD", # lr=0.05
+                        "Adam", # lr=0.01
+                        "NAG",
                         "OSGM", # lr=0.1
-                        "OSMM" # lr=0.1
+                        "OSMM", # lr=0.1
+                        # "AdamHD",
+                        # "SGDHD",
                         ]
         
         for optimizer_name in optimizer_names:

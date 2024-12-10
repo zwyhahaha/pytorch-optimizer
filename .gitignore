@@ -72,3 +72,5 @@ mnist_log
 runs/
 dataset/
 data/
+examples/run_cmd.py
+note.md

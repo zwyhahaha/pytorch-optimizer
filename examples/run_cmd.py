@@ -10,8 +10,8 @@ import subprocess
 commands = [
     # "CUDA_VISIBLE_DEVICES=7 python examples/mnist_os_test.py --lr 0.01 --batch_size 6000 --optimizer_name NAG",
     # "CUDA_VISIBLE_DEVICES=1 python examples/mnist_os_test.py --lr 0.01 --batch_size 6000 --optimizer_name Adam",
-    "CUDA_VISIBLE_DEVICES=2 python examples/mnist_os_test.py --lr 0.1 --batch_size 6000 --optimizer_name OSGM",
-    "CUDA_VISIBLE_DEVICES=3 python examples/mnist_os_test.py --lr 0.1 --batch_size 6000 --optimizer_name OSMM",
+    # "CUDA_VISIBLE_DEVICES=2 python examples/mnist_os_test.py --lr 0.1 --batch_size 6000 --optimizer_name OSGM",
+    # "CUDA_VISIBLE_DEVICES=3 python examples/mnist_os_test.py --lr 0.1 --batch_size 6000 --optimizer_name OSMM",
     # "CUDA_VISIBLE_DEVICES=6 python examples/mnist_os_test.py --lr 0.03 --batch_size 6000 --optimizer_name OSGM",
     # "CUDA_VISIBLE_DEVICES=4 python examples/mnist_os_test.py --lr 0.4 --batch_size 6000 --optimizer_name OSMM",
 ]
