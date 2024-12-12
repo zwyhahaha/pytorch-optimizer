@@ -19,7 +19,9 @@ from torch.optim import SGD, Adam
 import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from torch_optimizer import SGDHD, AdamHD
+from torch_optimizer import SGDHD, AdamHD, OSGM, OSMM
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,4"
 
 class LogReg(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -121,6 +123,10 @@ def train(opt, log_func=None):
         optimizer = Adam(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay)
     elif opt.method == 'adam_hd':
         optimizer = AdamHD(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay, hypergrad_lr=opt.beta)
+    elif opt.method == 'osgm':
+        optimizer = OSGM(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay)
+    elif opt.method == 'osmm':
+        optimizer = OSMM(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay) # , stop_step=opt.epochs, stop_beta=opt.beta
     else:
         raise Exception('Unknown method: {}'.format(opt.method))
 
@@ -134,15 +140,16 @@ def train(opt, log_func=None):
             data, target = data.cuda(), target.cuda()
         output = model(data)
         loss = F.cross_entropy(output, target)
-        loss = loss.data[0]
+        loss = loss.item()
         break
     valid_loss = 0
     for data, target in valid_loader:
-        data, target = Variable(data, volatile=True), Variable(target)
-        if opt.cuda:
-            data, target = data.cuda(), target.cuda()
-        output = model(data)
-        valid_loss += F.cross_entropy(output, target, size_average=False).data[0]
+        with torch.no_grad():
+            data, target = Variable(data), Variable(target)
+            if opt.cuda:
+                data, target = data.cuda(), target.cuda()
+            output = model(data)
+            valid_loss += F.cross_entropy(output, target, reduction='sum').item()
     valid_loss /= len(valid_loader.dataset)
     if log_func is not None:
         log_func(0, 0, 0, loss, loss, valid_loss, opt.alpha_0, opt.alpha_0, opt.beta)
@@ -151,22 +158,45 @@ def train(opt, log_func=None):
     iteration = 1
     epoch = 1
     done = False
+    next_data, next_target = None, None
     while not done:
         model.train()
         loss_epoch = 0
         alpha_epoch = 0
+        beta_epoch = 0
         for batch_id, (data, target) in enumerate(train_loader):
             data, target = Variable(data), Variable(target)
+            try:
+                next_data, next_target = next(iter(train_loader))
+                next_data, next_target = Variable(next_data), Variable(next_target)
+            except StopIteration:
+                next_data, next_target = data, target
+
             if opt.cuda:
                 data, target = data.cuda(), target.cuda()
+                next_data, next_target = next_data.cuda(), next_target.cuda()
+            
             optimizer.zero_grad()
             output = model(data)
             loss = F.cross_entropy(output, target)
             loss.backward()
-            optimizer.step()
-            loss = loss.data[0]
+
+            def closure():
+                next_output = model(next_data)
+                loss = F.cross_entropy(next_output, next_target)
+                return loss
+            
+            optimizer.step(closure)
+            loss = loss.item()
             loss_epoch += loss
-            alpha = optimizer.param_groups[0]['lr']
+            lr = optimizer.param_groups[0]['lr']
+            alpha = lr if isinstance(lr, float) else lr.detach().item()
+            if opt.method == 'osmm':
+                beta = optimizer.param_groups[0]['beta']
+                beta = beta.detach().item() if isinstance(beta, torch.Tensor) else beta
+            else:
+                beta = opt.beta
+            beta_epoch += beta
             alpha_epoch += alpha
             iteration += 1
             if opt.iterations != 0:
@@ -183,20 +213,22 @@ def train(opt, log_func=None):
             if batch_id + 1 >= len(train_loader):
                 loss_epoch /= len(train_loader)
                 alpha_epoch /= len(train_loader)
+                beta_epoch /= len(train_loader)
                 model.eval()
                 valid_loss = 0
                 for data, target in valid_loader:
-                    data, target = Variable(data, volatile=True), Variable(target)
-                    if opt.cuda:
-                        data, target = data.cuda(), target.cuda()
-                    output = model(data)
-                    valid_loss += F.cross_entropy(output, target, size_average=False).data[0]
+                    with torch.no_grad():
+                        data, target = Variable(data), Variable(target)
+                        if opt.cuda:
+                            data, target = data.cuda(), target.cuda()
+                        output = model(data)
+                        valid_loss += F.cross_entropy(output, target, reduction='sum').item()
                 valid_loss /= len(valid_loader.dataset)
                 if log_func is not None:
-                    log_func(epoch, iteration, time.time() - time_start, loss, loss_epoch, valid_loss, alpha, alpha_epoch, opt.beta)
+                    log_func(epoch, iteration, time.time() - time_start, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta)
             else:
                 if log_func is not None:
-                    log_func(epoch, iteration, time.time() - time_start, loss, float('nan'), float('nan'), alpha, float('nan'), opt.beta)
+                    log_func(epoch, iteration, time.time() - time_start, loss, float('nan'), float('nan'), alpha, float('nan'), beta)
 
         epoch += 1
         if opt.epochs != 0:
@@ -210,7 +242,7 @@ def main():
     try:
         parser = argparse.ArgumentParser(description='Hypergradient descent PyTorch tests', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument('--cuda', help='use CUDA', action='store_true')
-        parser.add_argument('--device', help='selected CUDA device', default=0, type=int)
+        parser.add_argument('--device', help='selected CUDA device', default=1, type=int)
         parser.add_argument('--seed', help='random seed', default=1, type=int)
         parser.add_argument('--dir', help='directory to write the output files', default='results', type=str)
         parser.add_argument('--model', help='model (logreg, mlp, vgg)', default='logreg', type=str)
@@ -224,7 +256,7 @@ def main():
         parser.add_argument('--iterations', help='stop after this many iterations (0: disregard)', default=0, type=int)
         parser.add_argument('--lossThreshold', help='stop after reaching this loss (0: disregard)', default=0, type=float)
         parser.add_argument('--silent', help='do not print output', action='store_true')
-        parser.add_argument('--workers', help='number of data loading workers', default=4, type=int)
+        parser.add_argument('--workers', help='number of data loading workers', default=5, type=int)
         parser.add_argument('--parallel', help='parallelize', action='store_true')
         parser.add_argument('--save', help='do not save output to file', action='store_true')
         opt = parser.parse_args()

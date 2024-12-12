@@ -16,10 +16,11 @@ commands = [
     # "CUDA_VISIBLE_DEVICES=4 python examples/mnist_os_test.py --lr 0.4 --batch_size 6000 --optimizer_name OSMM",
 ]
 
-# commands = [
-#     "CUDA_VISIBLE_DEVICES=2 python cifar10/main.py --lr 0.01 --optimizer_name OSMM --beta 0.995 --beta_lr 1e-3",
-#     # "CUDA_VISIBLE_DEVICES=3 python cifar10/main.py --lr 0.001 --optimizer_name OSMM --beta 0.1 --beta_lr 1e-2",
-# ]
+commands = [
+    "CUDA_VISIBLE_DEVICES=2 python vgg_train.py --cuda --model logreg --method sgd --save --epochs 10 --alpha_0 0.001 --beta 0.001",
+    "CUDA_VISIBLE_DEVICES=3 python vgg_train.py --cuda --model mlp --method sgd --save --epochs 100 --alpha_0 0.001 --beta 0.001",
+    "CUDA_VISIBLE_DEVICES=4 python vgg_train.py --cuda --model vgg --method sgd --save --epochs 100 --alpha_0 0.001 --beta 0.001",
+]
 
 processes = []
 

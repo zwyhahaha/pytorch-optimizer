@@ -74,3 +74,5 @@ dataset/
 data/
 examples/run_cmd.py
 note.md
+tests
+results

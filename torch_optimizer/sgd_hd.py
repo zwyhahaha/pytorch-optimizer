@@ -77,7 +77,7 @@ class SGDHD(Optimizer):
             else:
                 view = p.grad.data.view(-1)
             if weight_decay != 0:
-                view.add_(weight_decay, p.data.view(-1))
+                view.add_(p.data.view(-1), alpha=weight_decay)
             views.append(view)
         return torch.cat(views, 0)
 

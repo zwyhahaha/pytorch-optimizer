@@ -11,12 +11,13 @@ class OSGM(Optimizer):
         params: Params,
         lr: OptFloat = None,
         eps: float = 1e-08,
+        weight_decay: float = 0.0,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps)
+        defaults = dict(lr=lr,eps=eps,weight_decay=weight_decay)
         super(OSGM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -33,7 +34,13 @@ class OSGM(Optimizer):
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                grad = p.grad.data
+                
+                weight_decay = group["weight_decay"]
+                if weight_decay != 0:
+                    grad = p.grad.data.add(p.data, alpha=weight_decay)
+                else:
+                    grad = p.grad.data
+
                 state = self.state[p]
 
                 # State Initialization
