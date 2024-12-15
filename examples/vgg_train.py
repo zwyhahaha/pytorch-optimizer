@@ -20,6 +20,7 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from torch_optimizer import SGDHD, AdamHD, OSGM, OSMM
+from torch.optim.lr_scheduler import StepLR, ExponentialLR
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,4"
 
@@ -126,9 +127,11 @@ def train(opt, log_func=None):
     elif opt.method == 'osgm':
         optimizer = OSGM(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay)
     elif opt.method == 'osmm':
-        optimizer = OSMM(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay) # , stop_step=opt.epochs, stop_beta=opt.beta
+        optimizer = OSMM(model.parameters(), lr=opt.alpha_0, weight_decay=opt.weightDecay, beta_lr = opt.beta_lr, stop_step=len(train_loader.dataset)/opt.batchSize) # , stop_step=opt.epochs, stop_beta=opt.beta
     else:
         raise Exception('Unknown method: {}'.format(opt.method))
+
+    scheduler = ExponentialLR(optimizer, gamma=0.9)
 
     if not opt.silent:
         print('Task: {}, Model: {}, Method: {}'.format(task, opt.model, opt.method))
@@ -152,7 +155,7 @@ def train(opt, log_func=None):
             valid_loss += F.cross_entropy(output, target, reduction='sum').item()
     valid_loss /= len(valid_loader.dataset)
     if log_func is not None:
-        log_func(0, 0, 0, loss, loss, valid_loss, opt.alpha_0, opt.alpha_0, opt.beta)
+        log_func(0, 0, 0, loss, loss, valid_loss, opt.alpha_0, opt.alpha_0, opt.beta, opt.beta)
 
     time_start = time.time()
     iteration = 1
@@ -164,6 +167,9 @@ def train(opt, log_func=None):
         loss_epoch = 0
         alpha_epoch = 0
         beta_epoch = 0
+        if opt.lr_decay:
+            scheduler.step()
+
         for batch_id, (data, target) in enumerate(train_loader):
             data, target = Variable(data), Variable(target)
             try:
@@ -225,10 +231,10 @@ def train(opt, log_func=None):
                         valid_loss += F.cross_entropy(output, target, reduction='sum').item()
                 valid_loss /= len(valid_loader.dataset)
                 if log_func is not None:
-                    log_func(epoch, iteration, time.time() - time_start, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta)
+                    log_func(epoch, iteration, time.time() - time_start, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta, beta_epoch)
             else:
                 if log_func is not None:
-                    log_func(epoch, iteration, time.time() - time_start, loss, float('nan'), float('nan'), alpha, float('nan'), beta)
+                    log_func(epoch, iteration, time.time() - time_start, loss, float('nan'), float('nan'), alpha, float('nan'), beta, float('nan'))
 
         epoch += 1
         if opt.epochs != 0:
@@ -246,9 +252,10 @@ def main():
         parser.add_argument('--seed', help='random seed', default=1, type=int)
         parser.add_argument('--dir', help='directory to write the output files', default='results', type=str)
         parser.add_argument('--model', help='model (logreg, mlp, vgg)', default='logreg', type=str)
-        parser.add_argument('--method', help='method (sgd, sgd_hd, sgdn, sgdn_hd, adam, adam_hd)', default='adam', type=str)
-        parser.add_argument('--alpha_0', help='initial learning rate', default=0.001, type=float)
+        parser.add_argument('--method', help='method (sgd, sgd_hd, sgdn, sgdn_hd, adam, adam_hd)', default='osmm', type=str)
+        parser.add_argument('--alpha_0', help='initial learning rate', default=0.01, type=float)
         parser.add_argument('--beta', help='learning learning rate', default=0.000001, type=float)
+        parser.add_argument('--beta_lr', help='learning learning rate', default=0.01, type=float)
         parser.add_argument('--mu', help='momentum', default=0.9, type=float)
         parser.add_argument('--weightDecay', help='regularization', default=0.0001, type=float)
         parser.add_argument('--batchSize', help='minibatch size', default=128, type=int)
@@ -258,6 +265,7 @@ def main():
         parser.add_argument('--silent', help='do not print output', action='store_true')
         parser.add_argument('--workers', help='number of data loading workers', default=5, type=int)
         parser.add_argument('--parallel', help='parallelize', action='store_true')
+        parser.add_argument('--lr_decay', help='lr decay', action='store_true')
         parser.add_argument('--save', help='do not save output to file', action='store_true')
         opt = parser.parse_args()
 
@@ -267,7 +275,7 @@ def main():
             torch.cuda.manual_seed(opt.seed)
             torch.backends.cudnn.enabled = True
 
-        file_name = '{}/{}/{:+.0e}_{:+.0e}/{}.csv'.format(opt.dir, opt.model, opt.alpha_0, opt.beta, opt.method)
+        file_name = '{}/{}/{}_{:+.0e}_{:+.0e}_{}.csv'.format(opt.dir, opt.model, opt.method, opt.alpha_0, opt.beta_lr, opt.lr_decay)
         os.makedirs(os.path.dirname(file_name), exist_ok=True)
         if not opt.silent:
             print('Output file: {}'.format(file_name))
@@ -275,16 +283,16 @@ def main():
         #     print('File with previous results exists, skipping...')
         # else:
         if not opt.save:
-            def log_func(epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta):
+            def log_func(epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta, beta_epoch):
                 if not opt.silent:
                     print('{} | {} | Epoch: {} | Iter: {} | Time: {:+.3e} | Loss: {:+.3e} | Valid. loss: {:+.3e} | Alpha: {:+.3e} | Beta: {:+.3e}'.format(opt.model, opt.method, epoch, iteration, time_spent, loss, valid_loss, alpha, beta))
             train(opt, log_func)
         else:
             with open(file_name, 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Epoch', 'Iteration', 'Time', 'Loss', 'LossEpoch', 'ValidLossEpoch', 'Alpha', 'AlphaEpoch', 'Beta'])
-                def log_func(epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta):
-                    writer.writerow([epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta])
+                writer.writerow(['Epoch', 'Iteration', 'Time', 'Loss', 'LossEpoch', 'ValidLossEpoch', 'Alpha', 'AlphaEpoch', 'Beta', 'BetaEpoch'])
+                def log_func(epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta, beta_epoch):
+                    writer.writerow([epoch, iteration, time_spent, loss, loss_epoch, valid_loss, alpha, alpha_epoch, beta, beta_epoch])
                     if not opt.silent:
                         print('{} | {} | Epoch: {} | Iter: {} | Time: {:+.3e} | Loss: {:+.3e} | Valid. loss: {:+.3e} | Alpha: {:+.3e} | Beta: {:+.3e}'.format(opt.model, opt.method, epoch, iteration, time_spent, loss, valid_loss, alpha, beta))
                 train(opt, log_func)

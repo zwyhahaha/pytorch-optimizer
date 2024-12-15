@@ -56,27 +56,28 @@ for model in next(os.walk(opt.dir))[1]:
         selected.append(name)
 
     selected = ['sgd', 'sgdn', 'adam', 'osgm', 'osmm']
+    beta_selected = ['osmm']
 
     plt.figure(figsize=(5,12))
 
     fig = plt.figure(figsize=(5, 12))
-    # ax = fig.add_subplot(311)
-    # for name in selected:
-    #     plt.plot(data_epoch[name].Epoch,data_epoch[name].AlphaEpoch,label=names[name],color=colors[name],linestyle=linestyles[name],dashes=linedashes[name])
-    # ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    # plt.ylabel('Learning rate')
-    # plt.tick_params(labeltop=False, labelbottom=False, bottom=False, top=False, labelright=False)
-    # plt.grid()
-    # plt.title(model_titles[model])
-    # inset_axes(ax, width="50%", height="35%", loc=1)
-    # for name in selected:
-    #     plt.plot(data[name].Iteration, data[name].Alpha,label=names[name],color=colors[name],linestyle=linestyles[name],dashes=linedashes[name])
+    ax = fig.add_subplot(311)
+    for name in beta_selected:
+        plt.plot(data_epoch[name].Epoch,data_epoch[name].Beta,label=names[name],color=colors[name],linestyle=linestyles[name],dashes=linedashes[name])
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.ylabel('Beta')
+    plt.tick_params(labeltop=False, labelbottom=False, bottom=False, top=False, labelright=False)
+    plt.grid()
+    plt.title(model_titles[model])
+    inset_axes(ax, width="50%", height="35%", loc=1)
+    for name in beta_selected:
+        plt.plot(data[name].Iteration, data[name].Beta,label=names[name],color=colors[name],linestyle=linestyles[name],dashes=linedashes[name])
     # plt.yticks(np.arange(-0.01, 0.051, 0.01))
-    # plt.xlabel('Iteration')
-    # plt.ylabel('Learning rate')
+    plt.xlabel('Iteration')
+    plt.ylabel('Beta')
     # plt.xscale('log')
-    # plt.xlim([0,9000])
-    # plt.grid()
+    plt.xlim([0,9000])
+    plt.grid()
 
     ax = fig.add_subplot(312)
     for name in selected:
@@ -93,6 +94,7 @@ for model in next(os.walk(opt.dir))[1]:
     plt.xlabel('Iteration')
     plt.ylabel('Training loss')
     plt.xscale('log')
+    # plt.yscale('log')
     plt.xlim([0,9000])
     plt.grid()
 

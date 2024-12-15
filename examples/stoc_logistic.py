@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import math
 
 import torch
-from torch.optim.lr_scheduler import StepLR, ExponentialLR
+from torch.optim.lr_scheduler import StepLR, ExponentialLR, CosineAnnealingWarmRestarts
 
 import os
 import sys
@@ -70,40 +70,56 @@ def benchmark_optimizer_logistic(optimizer_name, X, y, n_classes, args, seed=42)
 
     w = torch.zeros(X_train.shape[1], n_classes, requires_grad=True)
     optimizers = {
-        "SGD": torch.optim.SGD([w], lr=0.5/math.sqrt(batches)),
-        "NAG": torch.optim.SGD([w],lr=0.008/batches,momentum=0.9,nesterov=True),
-        "Adam": torch.optim.Adam([w], lr=0.03/batches, betas=(0.9, 0.999)),
-        "OSGM": optim.OSGM([w], lr=0.5/batches),
-        "OSMM": optim.OSMM([w], lr=0.5/batches, weight_decay=0, stop_step=epochs/3*batches*100, stop_beta=0.9),
-        "AdamHD": optim.AdamHD([w], lr=0.1/batches, hypergrad_lr=1e-8),
-        "SGDHD": optim.SGDHD([w], lr=0.1/math.sqrt(batches), hypergrad_lr=1e-6),
+        "SGD": torch.optim.SGD([w], lr=0.2/math.sqrt(batches)),
+        "NAG": torch.optim.SGD([w],lr=0.1/batches,momentum=0.9,nesterov=True),
+        "Adam": torch.optim.Adam([w], lr=0.2/batches, betas=(0.9, 0.999)),
+        "OSGM": optim.OSGM([w], lr=2/batches,stop_step=batches*(epochs/10)),
+        "OSMM": optim.OSMM([w], lr=1/batches,beta_lr=0.5,stop_step=batches*(epochs/10)),
+        # "OSGM": optim.OSMM([w], lr=1/batches),
+        # "OSMM": optim.OSMM([w], lr=1/batches,beta_lr=0.1),
+        # "AdamHD": optim.AdamHD([w], lr=0.1/math.sqrt(batches), hypergrad_lr=1e-8),
+        # "SGDHD": optim.SGDHD([w], lr=0.1/math.sqrt(batches), hypergrad_lr=1e-6),
     }
     optimizer = optimizers[optimizer_name]
 
-    scheduler = ExponentialLR(optimizer, gamma=0.99) # exponential decay
+    # scheduler = ExponentialLR(optimizer, gamma=0.99) # exponential decay
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2) # cosine annealing
 
     losses = []
 
     for epoch in range(epochs):
-        loss = softmax_loss(w, X_train, y_train, lambda_reg, torch) # compute loss on the whole training set
-        losses.append(loss.item())
+        # loss = softmax_loss(w, X_train, y_train, lambda_reg, torch) # compute loss on the whole training set
+        # losses.append(loss.item())
 
         if (epoch+1) % 50 == 0:
             print(f"Epoch {epoch}, Loss: {loss.item()}")
         
         optimizer.zero_grad()
+        loss_batch = 0
         for i, (inputs, labels) in enumerate(train_loader):
-            next_inputs, next_labels = next(iter(train_loader))
+            random_indices = torch.randperm(inputs.shape[0])
+            inputs = inputs[random_indices]
+            labels = labels[random_indices]
+            closure_inputs = inputs
+            closure_labels = labels
+
+            # closure_inputs, closure_labels = next(iter(train_loader))
             def closure():
-                loss = softmax_loss(w, next_inputs, next_labels, lambda_reg, torch)
+                # loss = softmax_loss(w, inputs, labels, lambda_reg, torch)
+                loss = softmax_loss(w, closure_inputs, closure_labels, lambda_reg, torch)
+                # loss = softmax_loss(w, X_train, y_train, lambda_reg, torch)
                 return loss
             
             loss = softmax_loss(w, inputs, labels, lambda_reg, torch)
             loss.backward()
             optimizer.step(closure)
+            loss_batch += loss.item()
 
         if batches > 1:
             scheduler.step()
+        
+        loss_batch /= len(train_loader)
+        losses.append(loss_batch)
         
     test_loss = softmax_loss(w, X_test, y_test,lambda_reg=0)
     print(f"{optimizer_name} Test Loss: {test_loss:.2f}")
@@ -114,7 +130,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark different optimizers for logistic regression.")
     parser.add_argument("--lambda_reg", type=float, default=1e-4, help="Regularization parameter.")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train.")
-    parser.add_argument("--batches", type=int, default=60, help="Number of batches.")
+    parser.add_argument("--batches", type=int, default=16, help="Number of batches.")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -127,10 +143,11 @@ if __name__ == "__main__":
         # "dna.scale",
         # "glass.scale",
         # "iris.scale",
-        # "vehicle.scale",
-        # "vowel.scale",
+        "vehicle.scale",
+        "vowel.scale",
         # "wine.scale",
-        "mnist.scale.bz2",
+        # "mnist.scale.bz2",
+        # 'a1a',
     ]
 
     for dataset in datasets:
@@ -138,21 +155,24 @@ if __name__ == "__main__":
 
         optimizer_names = [
                         # "SGD",
-                        "Adam",
-                        "NAG",
-                        # "OSGM",
-                        # "OSMM",
+                        # "Adam",
+                        # "NAG",
+                        "OSGM",
+                        "OSMM",
                         # "AdamHD",
                         # "SGDHD",
                         ]
         
         for optimizer_name in optimizer_names:
             losses = []
-            for seed in range(0,1):
+            for seed in range(0,5):
                 w, loss = benchmark_optimizer_logistic(optimizer_name, X_tensor, y_tensor, n_classes,\
                                                         args, seed=seed)
                 losses.append(loss)
             
+            # w, losses = benchmark_optimizer_logistic(optimizer_name, X_tensor, y_tensor, n_classes,\
+            #                                             args, seed=1)
+
             losses = np.array(losses)
             print(losses.shape)
 
