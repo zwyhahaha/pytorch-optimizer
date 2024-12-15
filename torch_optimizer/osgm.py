@@ -10,6 +10,7 @@ class OSGM(Optimizer):
         self,
         params: Params,
         lr: OptFloat = None,
+        stop_step: OptFloat = None,
         eps: float = 1e-08,
         weight_decay: float = 0.0,
     ):
@@ -17,7 +18,7 @@ class OSGM(Optimizer):
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps,weight_decay=weight_decay)
+        defaults = dict(lr=lr,eps=eps,weight_decay=weight_decay,stop_step=stop_step)
         super(OSGM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -56,11 +57,15 @@ class OSGM(Optimizer):
                     eps = group["eps"]
                     lr = group["lr"]
                     
-                    gr = - prev_grad.mul(grad) / (prev_grad.norm() ** 2 + 1e-20) # gradient of preconditioner
-                    
-                    state["G"].addcmul_(gr, gr, value=1) # Adagrad normalizer
-                    state["Q"].addcdiv_(gr, state["G"].add(eps).sqrt(), value=-lr) # adagrad preconditioner update
-                    
+                    if state["step"] % group["stop_step"] == 0:
+                        state["Q"] = torch.zeros_like(p)
+                        state["G"] = torch.zeros_like(p)
+                    else:
+                        gr = - prev_grad.mul(grad) / (prev_grad.norm() ** 2 + 1e-20) # gradient of preconditioner
+                        
+                        state["G"].addcmul_(gr, gr, value=1) # Adagrad normalizer
+                        state["Q"].addcdiv_(gr, state["G"].add(eps).sqrt(), value=-lr) # adagrad preconditioner update
+                        
                     pcopy = p.detach().clone()
                     p.addcmul_(state["Q"], grad, value=-1.0)
 

@@ -12,6 +12,7 @@ class OSMM(Optimizer):
         self,
         params: Params,
         lr: OptFloat = None,
+        beta_lr: OptFloat = 1.0,
         beta = 0.995,
         random_scaling = False,
         eps: float = 1e-08,
@@ -24,7 +25,8 @@ class OSMM(Optimizer):
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
         defaults = dict(lr=lr,eps=eps,beta=beta,random_scaling=random_scaling
-                        ,weight_decay=weight_decay,stop_step=stop_step,stop_beta=stop_beta)
+                        ,weight_decay=weight_decay,stop_step=stop_step,stop_beta=stop_beta,
+                        beta_lr=beta_lr)
         super(OSMM,self).__init__(params, defaults)
 
     @torch.no_grad()
@@ -53,10 +55,11 @@ class OSMM(Optimizer):
                 # State Initialization
                 if len(state) == 0:
                     state["step"] = 0
-                    # state["beta"] = torch.tensor(group["beta"])
+                    state["beta_avg"] = torch.tensor(group["beta"])
                     state["Gm"] = 0
                     state["m"] = torch.zeros_like(p)
                     state["Q"] = torch.zeros_like(p)
+                    state["Q_avg"] = torch.zeros_like(p)
                     state["G"] = torch.zeros_like(p)
                     state["prev_grad"] = torch.zeros_like(grad)
                 else:
@@ -66,23 +69,34 @@ class OSMM(Optimizer):
                     m = state["m"]
                     eps = group["eps"]
                     lr = group["lr"]
+                    beta_lr = group["beta_lr"]
                     stop_step = group["stop_step"]
-                    stop_beta = group["stop_beta"]
+                    step = state["step"]
+                    if stop_step is None:
+                        stop_step = np.inf
                     
-                    gr = - prev_grad.mul(grad) / (prev_grad.norm() ** 2 + 1e-20) # gradient of preconditioner
-                    
-                    state["G"].addcmul_(gr, gr, value=1) # Adagrad normalizer
-                    state["Q"].addcdiv_(gr, state["G"].add(eps).sqrt(), value=-lr) # adagrad preconditioner update
-                    gm = (prev_grad * m).sum() / (prev_grad.norm() ** 2 + 1e-20) # gradient of momentum coef
-
-                    if stop_step is not None and state["step"] <= stop_step:
-                        state["Gm"] += gm ** 2 # Adagrad normalizer for momentum coef
-                        group["beta"] += - lr * gm / (state["Gm"].add(eps).sqrt()) # adagrad preconditioner update
-                        # group["beta"].clamp_(0.9, 0.9995) # beta clipping
+                    if step % stop_step == 0:
+                        state["Q"] = state["Q_avg"]
+                        group["beta"] = state["beta_avg"]
+                        state["Q_avg"] = torch.zeros_like(p)
+                        state["beta_avg"] = torch.tensor(0)
+                        state["Gm"] = 0
+                        state["G"] = torch.zeros_like(p)
                     else:
-                        group["beta"] = torch.tensor(stop_beta)
+                        gr = - prev_grad.mul(grad) / (prev_grad.norm() ** 2 + 1e-20) # gradient of preconditioner
+                        state["G"].addcmul_(gr, gr, value=1) # Adagrad normalizer
+                        state["Q"].addcdiv_(gr, state["G"].add(eps).sqrt(), value=-lr) # adagrad preconditioner update
+                        state["Q_avg"] = state["Q_avg"]*(step-1)/step + state["Q"]/step
+                        
+                        gm = (grad * m).sum() / (prev_grad.norm() ** 2 + 1e-20) # gradient of momentum coef
+                        state["Gm"] += gm ** 2 # Adagrad normalizer for momentum coef
+                        group["beta"] = group["beta"] - beta_lr*lr * gm / (state["Gm"].add(eps).sqrt()) # adagrad preconditioner update
+                        # group["beta"].clamp_(0.9, 0.9995) # beta clipping
+                        state["beta_avg"] = state["beta_avg"]*(step-1)/step + group["beta"]/step
 
-                    pcopy = p.detach().clone()
+                    # print(group["beta"],state["Q"].norm())
+
+                    pcopy = p.data.clone()
                     p.addcmul_(state["Q"], grad, value=-1).add_(group["beta"] * m)
 
                     loss_new = closure()
