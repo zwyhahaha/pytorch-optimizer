@@ -74,8 +74,8 @@ class OSMM(Optimizer):
                         stop_step = np.inf
                     
                     if step % stop_step == 0:
-                        state["Q"] = state["Q_avg"]
-                        group["beta"] = state["beta_avg"]
+                        state["Q"] = torch.zeros_like(p)
+                        group["beta"] = torch.tensor(0)
                         state["Q_avg"] = torch.zeros_like(p)
                         state["beta_avg"] = torch.tensor(0)
                         state["Gm"] = 0
