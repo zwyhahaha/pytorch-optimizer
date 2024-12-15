@@ -12,20 +12,18 @@ class OSMM(Optimizer):
         self,
         params: Params,
         lr: OptFloat = None,
-        beta_lr: OptFloat = 1.0,
-        beta = 0.995,
-        random_scaling = False,
+        beta_lr: OptFloat = 1.0, # lr(beta)/lr(P)
+        beta = 0.,
         eps: float = 1e-08,
         weight_decay: float = 0.0,
         stop_step: OptFloat = None,
-        stop_beta: float = 0.9,
     ):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
             raise ValueError(f"Invalid epsilon value: {eps}")
-        defaults = dict(lr=lr,eps=eps,beta=beta,random_scaling=random_scaling
-                        ,weight_decay=weight_decay,stop_step=stop_step,stop_beta=stop_beta,
+        defaults = dict(lr=lr,eps=eps,beta=beta,
+                        weight_decay=weight_decay,stop_step=stop_step,
                         beta_lr=beta_lr)
         super(OSMM,self).__init__(params, defaults)
 
@@ -91,17 +89,14 @@ class OSMM(Optimizer):
                         gm = (grad * m).sum() / (prev_grad.norm() ** 2 + 1e-20) # gradient of momentum coef
                         state["Gm"] += gm ** 2 # Adagrad normalizer for momentum coef
                         group["beta"] = group["beta"] - beta_lr*lr * gm / (state["Gm"].add(eps).sqrt()) # adagrad preconditioner update
-                        # group["beta"].clamp_(0.9, 0.9995) # beta clipping
                         state["beta_avg"] = state["beta_avg"]*(step-1)/step + group["beta"]/step
-
-                    # print(group["beta"],state["Q"].norm())
 
                     pcopy = p.data.clone()
                     p.addcmul_(state["Q"], grad, value=-1).add_(group["beta"] * m)
 
                     loss_new = closure()
 
-                    if loss_new > loss:
+                    if 2*loss_new > loss:
                         p.data = pcopy
 
                     state["m"] = p - pcopy
