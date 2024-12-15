@@ -73,7 +73,7 @@ class OSMM(Optimizer):
                     if stop_step is None:
                         stop_step = np.inf
                     
-                    if step % stop_step == 0:
+                    if step % stop_step == 0: # restart
                         state["Q"] = torch.zeros_like(p)
                         group["beta"] = torch.tensor(0)
                         state["Q_avg"] = torch.zeros_like(p)
@@ -96,7 +96,7 @@ class OSMM(Optimizer):
 
                     loss_new = closure()
 
-                    if 2*loss_new > loss:
+                    if loss_new > 2 * loss:
                         p.data = pcopy
 
                     state["m"] = p - pcopy
